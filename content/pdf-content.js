@@ -38,7 +38,10 @@
   }
 
   function isPDFPage() {
-    const url = window.location.href;
+    const fullUrl = window.location.href;
+    // 去掉 fragment（# 之后的内容），因为 pdf.js 常用 #page=N 定位
+    const url = fullUrl.split('#')[0];
+
     // file:// 协议 — 可能被 Scholar PDF Reader 渲染为 PDF 查看器
     if (url.startsWith('file://')) {
       // 检查文件名后缀
