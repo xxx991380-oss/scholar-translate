@@ -22,6 +22,7 @@
     "https://scholar.google.com.hk/*",
     "https://scholar.google.com.tw/*",
     "https://scholar.googleusercontent.com/*",
+    "file://*/*",
     "https://translate.google.com/*",
     "https://translate-pa.googleapis.com/*",
     "https://api.cognitive.microsofttranslator.com/*",
@@ -51,7 +52,8 @@
     {
       "matches": [
         "https://scholar.googleusercontent.com/*",
-        "*://*/*.pdf"
+        "*://*/*.pdf",
+        "file://*/*.pdf"
       ],
       "js": ["lib/dom-utils.js", "content/pdf-content.js"],
       "css": ["content/styles.css"],

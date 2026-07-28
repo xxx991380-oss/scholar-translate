@@ -53,7 +53,8 @@
 4. 打开右上角 **「开发人员模式」** / **「Developer mode」**
 5. 点击 **「加载解压缩的扩展」** / **「Load unpacked」**
 6. 选择 `scholar-translate` 文件夹
-7. 🎉 完成！打开 [Google Scholar](https://scholar.google.com) 试试吧
+7. ⚠️ **重要**：点击扩展详情 → 开启 **「允许访问文件 URL」** / **「Allow access to file URLs」**（这样才能翻译本地 PDF）
+8. 🎉 完成！打开 [Google Scholar](https://scholar.google.com) 试试吧
 
 ### 方式二：Edge 加载项 / Chrome 应用商店（即将上线）
 
