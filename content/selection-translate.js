@@ -25,22 +25,34 @@
     document.addEventListener('mouseup', onMouseUp);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
-    console.log('[ScholarTranslate] Selection translate ready');
+
+    // 调试：检查页面中是否有 iframe
+    const iframes = document.querySelectorAll('iframe');
+    console.log('[ScholarTranslate] Selection translate ready. Iframes found:', iframes.length);
+    if (iframes.length > 0) {
+      for (const f of iframes) {
+        console.log('[ScholarTranslate] Iframe src:', f.src);
+      }
+    }
   }
 
   // ============================================================
   // 选区变化 — 主要检测方式
   // ============================================================
   let selectionDebounce = null;
+  let eventCount = 0;
 
   function onSelectionChange() {
-    // 点击浮动按钮或弹窗时忽略
-    const activeEl = document.activeElement;
-    if (floatBtn && floatBtn.contains(activeEl)) return;
-    if (popup && popup.shadowRoot && popup.shadowRoot.activeElement) return;
+    eventCount++;
+    // 每 10 次打印一次，避免日志刷屏
+    if (eventCount % 10 === 1) {
+      const sel = window.getSelection();
+      console.log('[ScholarTranslate] selectionchange #' + eventCount +
+        ' collapsed=' + (sel ? sel.isCollapsed : 'null') +
+        ' text=' + (sel ? JSON.stringify(sel.toString().substring(0, 30)) : 'null'));
+    }
 
     clearTimeout(selectionDebounce);
-    // 防抖 200ms
     selectionDebounce = setTimeout(() => {
       checkSelection();
     }, 200);
