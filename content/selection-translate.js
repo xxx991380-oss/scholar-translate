@@ -19,6 +19,9 @@
   // 初始化
   // ============================================================
   function init() {
+    // 使用 selectionchange 作为主要检测方式（PDF 查看器可能拦截 mouseup）
+    document.addEventListener('selectionchange', onSelectionChange);
+    // mouseup 作为辅助（快速触发）
     document.addEventListener('mouseup', onMouseUp);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
@@ -26,41 +29,24 @@
   }
 
   // ============================================================
-  // 鼠标事件
+  // 选区变化 — 主要检测方式
   // ============================================================
-  function onMouseUp(e) {
-    // 点击浮动按钮或弹窗时，不触发选区检测
-    if (floatBtn && floatBtn.contains(e.target)) return;
-    if (popup && popup.contains(e.target)) return;
+  let selectionDebounce = null;
 
-    clearTimeout(hideTimer);
-    setTimeout(() => handleSelection(e), 50);
+  function onSelectionChange() {
+    // 点击浮动按钮或弹窗时忽略
+    const activeEl = document.activeElement;
+    if (floatBtn && floatBtn.contains(activeEl)) return;
+    if (popup && popup.shadowRoot && popup.shadowRoot.activeElement) return;
+
+    clearTimeout(selectionDebounce);
+    // 防抖 200ms
+    selectionDebounce = setTimeout(() => {
+      checkSelection();
+    }, 200);
   }
 
-  function onMouseDown(e) {
-    // 点击浮动按钮或弹窗内部 — 不隐藏
-    if (floatBtn && floatBtn.contains(e.target)) return;
-    if (popup && popup.contains(e.target)) return;
-
-    // 不立即隐藏，给 click 事件时间
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      if (!isTranslating) hideAll();
-    }, 250);
-  }
-
-  function onKeyDown(e) {
-    if (e.key === 'Escape') {
-      hideAll();
-      window.getSelection().removeAllRanges();
-    }
-  }
-
-  // ============================================================
-  // 选中处理
-  // ============================================================
-  function handleSelection(e) {
-    // 如果正在翻译中，忽略新的选区
+  function checkSelection() {
     if (isTranslating) return;
 
     const selection = window.getSelection();
@@ -75,15 +61,45 @@
       return;
     }
 
-    const range = selection.getRangeAt(selection.rangeCount - 1);
-    const rect = range.getBoundingClientRect();
-
-    if (!rect || (rect.width === 0 && rect.height === 0)) {
-      if (!isTranslating) hideFloatBtn();
-      return;
+    try {
+      const range = selection.getRangeAt(selection.rangeCount - 1);
+      const rect = range.getBoundingClientRect();
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        if (!isTranslating) hideFloatBtn();
+        return;
+      }
+      console.log('[ScholarTranslate] Selection detected:', text.substring(0, 50) + '...');
+      showFloatBtn(rect, text);
+    } catch (e) {
+      console.warn('[ScholarTranslate] Selection check error:', e);
     }
+  }
 
-    showFloatBtn(rect, text);
+  // ============================================================
+  // 鼠标事件（辅助）
+  // ============================================================
+  function onMouseUp(e) {
+    if (floatBtn && floatBtn.contains(e.target)) return;
+    if (popup && popup.contains(e.target)) return;
+    clearTimeout(hideTimer);
+    // 立即检查一次（比 selectionchange 更快）
+    setTimeout(checkSelection, 50);
+  }
+
+  function onMouseDown(e) {
+    if (floatBtn && floatBtn.contains(e.target)) return;
+    if (popup && popup.contains(e.target)) return;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!isTranslating) hideAll();
+    }, 300);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      hideAll();
+      window.getSelection().removeAllRanges();
+    }
   }
 
   // ============================================================
