@@ -1,7 +1,6 @@
 /**
  * ScholarTranslate — PDF 内容脚本
- * 提供手动触发的 PDF 翻译侧栏（当前页翻译 + 全文翻译按钮）
- * 划词翻译由 selection-translate.js 独立处理
+ * 自己解析 PDF 提取文字，渲染到可选中翻译的面板中
  */
 
 (function () {
@@ -12,68 +11,129 @@
   let sidePanel = null;
   let toggleBtn = null;
   let isTranslating = false;
+  let pdfTextPages = [];  // 每页的原文 [{pageNum, text}]
 
   // ============================================================
-  // 初始化 — 仅创建 UI，不自动翻译
+  // 初始化
   // ============================================================
   async function init() {
-    const isPDF = isPDFPage();
-    console.log('[ScholarTranslate] isPDFPage result:', isPDF, 'URL:', window.location.href);
-
-    if (!isPDF) {
-      console.log('[ScholarTranslate] Not a PDF page, skipping panel setup. Selection translate still works.');
+    if (!isPDFPage()) {
+      console.log('[ScholarTranslate] Not a PDF page, skipping');
       return;
     }
 
-    console.log('[ScholarTranslate] PDF page detected, setting up manual translation panel');
+    console.log('[ScholarTranslate] PDF page detected');
 
-    await waitForPDFContent();
+    // 检查 pdf.js 是否可用
+    if (typeof pdfjsLib === 'undefined') {
+      console.warn('[ScholarTranslate] pdfjsLib not available, PDF text extraction disabled');
+      return;
+    }
 
-    // 创建侧栏（默认隐藏）
+    // 设置 worker 路径
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
+    console.log('[ScholarTranslate] pdf.js ready');
+
+    // 创建 UI
     sidePanel = createSidePanel();
     sidePanel.classList.add('hidden');
-
-    // 创建切换按钮
     toggleBtn = createToggleBtn();
+
+    // 显示侧栏并开始提取文字
+    sidePanel.classList.remove('hidden');
+    if (toggleBtn) toggleBtn.style.opacity = '0';
+
+    // 提取 PDF 文字
+    await extractPdfText();
   }
 
   function isPDFPage() {
     const fullUrl = window.location.href;
-    // 去掉 fragment（# 之后的内容），因为 pdf.js 常用 #page=N 定位
     const url = fullUrl.split('#')[0];
-
-    // file:// 协议 — 可能被 Scholar PDF Reader 渲染为 PDF 查看器
-    if (url.startsWith('file://')) {
-      // 检查文件名后缀
-      if (url.toLowerCase().endsWith('.pdf')) return true;
-      // 即使没有 .pdf 后缀，如果页面中有 PDF 查看器也算
-      if (document.querySelector('.pdfViewer, .textLayer, #viewer.pdfViewer, #viewerContainer')) return true;
-      // file:// 且页面内容很少（可能是 PDF 渲染中），也尝试初始化
-      return true;
-    }
-    // 直接 PDF URL
+    if (url.startsWith('file://')) return true;
     if (url.endsWith('.pdf')) return true;
-    // Google Scholar PDF 查看器
     if (url.includes('scholar.googleusercontent.com')) return true;
-    // 通用 PDF 查看器
     if (url.includes('pdf.js') || url.includes('pdf_viewer')) return true;
-    // 检查页面中是否有 PDF 查看器
     if (document.querySelector('.pdfViewer, .textLayer, #viewer.pdfViewer, #viewerContainer')) return true;
     return false;
   }
 
-  async function waitForPDFContent(maxWait = 10000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < maxWait) {
-      const textLayer = document.querySelector('.textLayer');
-      const textLayerSpans = document.querySelectorAll('.textLayer span');
-      const pdfViewer = document.querySelector('.pdfViewer, #viewerContainer');
-      if ((textLayer && textLayerSpans.length > 0) || pdfViewer) {
-        return true;
+  // ============================================================
+  // 提取 PDF 文字
+  // ============================================================
+  async function extractPdfText() {
+    const url = window.location.href.split('#')[0]; // 去掉 fragment
+
+    updatePanelStatus('正在加载 PDF...');
+
+    try {
+      // 获取 PDF 数据
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const arrayBuffer = await response.arrayBuffer();
+
+      updatePanelStatus('正在解析 PDF...');
+
+      // 用 pdf.js 解析
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdfDoc.numPages;
+
+      console.log(`[ScholarTranslate] PDF loaded: ${totalPages} pages`);
+
+      pdfTextPages = [];
+
+      for (let i = 1; i <= totalPages; i++) {
+        updatePanelStatus(`正在提取第 ${i} / ${totalPages} 页...`);
+
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map(item => item.str)
+          .filter(s => s && s.trim())
+          .join(' ');
+
+        if (pageText.trim()) {
+          pdfTextPages.push({ pageNum: i, text: pageText });
+        }
       }
-      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log(`[ScholarTranslate] Extracted text from ${pdfTextPages.length} pages`);
+      renderPdfText();
+    } catch (err) {
+      console.error('[ScholarTranslate] PDF extraction failed:', err);
+      updatePanelStatus('PDF 解析失败: ' + err.message + '\n\n请确保 PDF 文件可访问。');
     }
-    return false;
+  }
+
+  // ============================================================
+  // 渲染 PDF 文字到面板
+  // ============================================================
+  function renderPdfText() {
+    const shadow = sidePanel.shadowRoot;
+    const content = shadow.getElementById('st-panel-content');
+
+    if (pdfTextPages.length === 0) {
+      content.innerHTML = '<div class="st-hint">未提取到文字内容，可能为扫描版 PDF。</div>';
+      return;
+    }
+
+    let html = '';
+    for (const page of pdfTextPages) {
+      html += `<div class="st-page-section">`;
+      html += `<div class="st-page-label">📄 第 ${page.pageNum} 页</div>`;
+      html += `<div class="st-pdf-text" data-st-page="${page.pageNum}">${escapeHtml(page.text)}</div>`;
+      html += `</div>`;
+    }
+
+    content.innerHTML = html;
+  }
+
+  function updatePanelStatus(message) {
+    if (!sidePanel || !sidePanel.shadowRoot) return;
+    const content = sidePanel.shadowRoot.getElementById('st-panel-content');
+    if (content) {
+      content.innerHTML = `<div class="st-hint" style="text-align:center;padding:24px;">${escapeHtml(message)}</div>`;
+    }
   }
 
   // ============================================================
@@ -95,7 +155,7 @@
           position: fixed;
           right: 0;
           top: 0;
-          width: 360px;
+          width: 400px;
           height: 100vh;
           background: #fff;
           box-shadow: -2px 0 16px rgba(0,0,0,0.12);
@@ -131,7 +191,6 @@
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: background 0.2s;
         }
         .st-panel-header button:hover {
           background: rgba(255,255,255,0.35);
@@ -146,28 +205,24 @@
         }
         .st-panel-toolbar button {
           flex: 1;
-          padding: 8px 10px;
+          padding: 8px 6px;
           border: 1px solid #ddd;
           background: #fff;
           border-radius: 6px;
           cursor: pointer;
-          font-size: 12px;
+          font-size: 11px;
           color: #333;
           transition: all 0.15s;
           white-space: nowrap;
         }
         .st-panel-toolbar button:hover {
           background: #f0f0f0;
-          border-color: #bbb;
         }
         .st-panel-toolbar button.primary {
           background: #4285f4;
           color: white;
           border-color: #4285f4;
           font-weight: 500;
-        }
-        .st-panel-toolbar button.primary:hover {
-          background: #3367d6;
         }
         .st-panel-toolbar button:disabled {
           opacity: 0.5;
@@ -178,45 +233,62 @@
           overflow-y: auto;
           padding: 16px;
           font-size: 13px;
-          line-height: 1.7;
+          line-height: 1.75;
           color: #333;
+          user-select: text;
+          -webkit-user-select: text;
         }
         .st-panel-content .st-page-section {
-          margin-bottom: 20px;
+          margin-bottom: 24px;
           border-bottom: 1px solid #eee;
-          padding-bottom: 16px;
+          padding-bottom: 20px;
         }
         .st-panel-content .st-page-label {
           font-size: 11px;
           color: #4285f4;
           font-weight: 600;
-          margin-bottom: 8px;
+          margin-bottom: 10px;
+          position: sticky;
+          top: 0;
+          background: #fff;
+          padding: 4px 0;
+          z-index: 1;
         }
-        .st-panel-content .st-translated-paragraph {
-          margin-bottom: 8px;
-          padding: 6px 10px;
-          background: #f8f9fa;
-          border-radius: 6px;
-          border-left: 3px solid #4285f4;
+        .st-panel-content .st-pdf-text {
+          white-space: pre-wrap;
+          word-break: break-word;
+          cursor: text;
         }
         .st-panel-content .st-hint {
           color: #999;
-          font-size: 12px;
+          font-size: 13px;
           text-align: center;
-          padding: 40px 20px;
+          padding: 60px 20px;
           line-height: 1.8;
+        }
+        .st-panel-content .st-trans-result {
+          margin-top: 10px;
+          padding: 8px 12px;
+          background: #f0f4ff;
+          border-left: 3px solid #4285f4;
+          border-radius: 0 6px 6px 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          font-size: 13px;
+          color: #1a56db;
         }
         @media (prefers-color-scheme: dark) {
           :host { background: #1e1e1e; }
           .st-panel-toolbar { background: #2a2a2a; border-bottom-color: #333; }
           .st-panel-toolbar button { background: #333; color: #ddd; border-color: #444; }
           .st-panel-content { color: #ccc; }
-          .st-panel-content .st-translated-paragraph { background: #2a2a2a; }
+          .st-panel-content .st-page-label { background: #1e1e1e; }
           .st-page-section { border-bottom-color: #333; }
+          .st-panel-content .st-trans-result { background: #1a2332; }
         }
       </style>
       <div class="st-panel-header">
-        <span>📖 论文翻译</span>
+        <span>📖 论文文字</span>
         <button id="st-panel-close" title="关闭面板">×</button>
       </div>
       <div class="st-panel-toolbar">
@@ -225,38 +297,21 @@
         <button id="st-btn-clear">🗑️ 清除</button>
       </div>
       <div class="st-panel-content" id="st-panel-content">
-        <div class="st-hint">
-          💡 <b>划词翻译</b>：选中 PDF 中的文字即可翻译<br><br>
-          📄 <b>翻译当前页</b>：翻译正在查看的这一页<br><br>
-          📚 <b>翻译全文</b>：翻译整篇论文（需要一些时间）
-        </div>
+        <div class="st-hint">正在加载 PDF...</div>
       </div>
     `;
 
     document.body.appendChild(panel);
 
-    // 事件绑定
+    // 事件
     shadow.getElementById('st-panel-close').addEventListener('click', () => {
       panel.classList.add('hidden');
       if (toggleBtn) toggleBtn.style.opacity = '1';
     });
-
-    shadow.getElementById('st-btn-current-page').addEventListener('click', () => {
-      translateCurrentPage();
-    });
-
-    shadow.getElementById('st-btn-all-pages').addEventListener('click', () => {
-      translateAllPages();
-    });
-
+    shadow.getElementById('st-btn-current-page').addEventListener('click', translateCurrentPage);
+    shadow.getElementById('st-btn-all-pages').addEventListener('click', translateAllPages);
     shadow.getElementById('st-btn-clear').addEventListener('click', () => {
-      shadow.getElementById('st-panel-content').innerHTML = `
-        <div class="st-hint">
-          💡 <b>划词翻译</b>：选中 PDF 中的文字即可翻译<br><br>
-          📄 <b>翻译当前页</b>：翻译正在查看的这一页<br><br>
-          📚 <b>翻译全文</b>：翻译整篇论文（需要一些时间）
-        </div>
-      `;
+      renderPdfText();
     });
 
     return panel;
@@ -265,213 +320,71 @@
   function createToggleBtn() {
     const btn = document.createElement('button');
     btn.id = 'st-pdf-toggle-btn';
-    btn.textContent = '翻译';
+    btn.textContent = '文字';
     Object.assign(btn.style, {
-      position: 'fixed',
-      right: '4px',
-      top: '50%',
+      position: 'fixed', right: '4px', top: '50%',
       transform: 'translateY(-50%)',
-      width: '26px',
-      height: '60px',
-      background: '#4285f4',
-      color: 'white',
-      border: 'none',
-      borderRadius: '8px 0 0 8px',
-      cursor: 'pointer',
-      fontSize: '12px',
+      width: '26px', height: '60px',
+      background: '#4285f4', color: 'white',
+      border: 'none', borderRadius: '8px 0 0 8px',
+      cursor: 'pointer', fontSize: '12px',
       writingMode: 'vertical-lr',
-      zIndex: '99999',
-      opacity: '0',
+      zIndex: '99999', opacity: '0',
       transition: 'opacity 0.2s',
-      boxShadow: '-2px 0 8px rgba(0,0,0,0.1)',
-      padding: '4px 0'
+      boxShadow: '-2px 0 8px rgba(0,0,0,0.1)'
     });
-
     btn.addEventListener('click', () => {
       if (sidePanel) {
         sidePanel.classList.remove('hidden');
         btn.style.opacity = '0';
       }
     });
-
-    btn.addEventListener('mouseenter', () => {
-      btn.style.opacity = '1';
-    });
-
     document.body.appendChild(btn);
-
-    // 鼠标靠近右侧时显示按钮
     document.addEventListener('mousemove', (e) => {
       if (sidePanel && sidePanel.classList.contains('hidden')) {
         btn.style.opacity = e.clientX > window.innerWidth - 40 ? '1' : '0';
       }
     });
-
     return btn;
-  }
-
-  // ============================================================
-  // 翻译逻辑（手动触发）
-  // ============================================================
-  function getVisiblePages() {
-    const allPages = document.querySelectorAll('.page[data-page-number]');
-    const visible = [];
-    for (const page of allPages) {
-      const rect = page.getBoundingClientRect();
-      if (rect.top < window.innerHeight + 200 && rect.bottom > -200) {
-        visible.push(page);
-      }
-    }
-    // 如果没找到分页，尝试整个 textLayer
-    if (visible.length === 0) {
-      const textLayer = document.querySelector('.textLayer');
-      if (textLayer) visible.push(textLayer);
-    }
-    return visible;
-  }
-
-  function getAllPages() {
-    const pages = document.querySelectorAll('.page[data-page-number]');
-    if (pages.length > 0) return Array.from(pages);
-    const textLayer = document.querySelector('.textLayer');
-    return textLayer ? [textLayer] : [];
-  }
-
-  function extractPageText(pageElement) {
-    const textSpans = pageElement.querySelectorAll('.textLayer span');
-    if (textSpans.length > 0) {
-      return Array.from(textSpans)
-        .map(span => span.textContent.trim())
-        .filter(t => t.length > 0)
-        .join(' ');
-    }
-    return pageElement.textContent.trim().replace(/\s+/g, ' ');
-  }
-
-  function splitIntoChunks(text, maxLen) {
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    const chunks = [];
-    let current = '';
-    for (const sentence of sentences) {
-      if (current.length + sentence.length > maxLen && current.length > 0) {
-        chunks.push(current.trim());
-        current = '';
-      }
-      current += sentence;
-    }
-    if (current.trim()) chunks.push(current.trim());
-    return chunks.length > 0 ? chunks : [text];
-  }
-
-  async function loadSettings() {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-      return response.settings || {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   // ============================================================
   // 翻译当前页
   // ============================================================
   async function translateCurrentPage() {
-    if (isTranslating) return;
+    if (isTranslating || pdfTextPages.length === 0) return;
     const shadow = sidePanel.shadowRoot;
     const content = shadow.getElementById('st-panel-content');
     const btn = shadow.getElementById('st-btn-current-page');
 
-    isTranslating = true;
-    btn.disabled = true;
-    btn.textContent = '⏳ 翻译中...';
-    content.innerHTML = '<div style="color:#999;text-align:center;padding:20px;">正在翻译当前页...</div>';
+    // 找到当前可见的页面
+    const scrollTop = content.scrollTop;
+    const visiblePage = pdfTextPages.find((p, i) => {
+      const el = content.querySelector(`[data-st-page="${p.pageNum}"]`);
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.top < window.innerHeight && rect.bottom > 0;
+    });
 
-    try {
-      const pages = getVisiblePages();
-      const settings = await loadSettings();
-      let html = '';
-
-      for (const page of pages) {
-        const pageNum = page.getAttribute('data-page-number') || '?';
-        const text = extractPageText(page);
-        if (text.length < 20) continue;
-
-        const chunks = splitIntoChunks(text, 800);
-        const pageTranslations = [];
-
-        for (const chunk of chunks) {
-          if (chunk.trim().length < 10) continue;
-          const response = await chrome.runtime.sendMessage({
-            type: 'TRANSLATE',
-            payload: {
-              texts: [chunk],
-              from: settings.sourceLang || 'en',
-              to: settings.targetLang || 'zh-CN',
-              engine: settings.preferredEngine
-            }
-          });
-          if (response.success && response.results[0] && response.results[0] !== chunk) {
-            pageTranslations.push(response.results[0]);
-          }
-        }
-
-        if (pageTranslations.length > 0) {
-          html += `<div class="st-page-section">`;
-          html += `<div class="st-page-label">📄 第 ${pageNum} 页</div>`;
-          for (const t of pageTranslations) {
-            html += `<div class="st-translated-paragraph">${escapeHtml(t)}</div>`;
-          }
-          html += `</div>`;
-        }
-      }
-
-      content.innerHTML = html || '<div style="color:#999;text-align:center;padding:20px;">当前页无可翻译文本</div>';
-
-    } catch (err) {
-      console.error('[ScholarTranslate] Page translation error:', err);
-      content.innerHTML = '<div style="color:#d93025;text-align:center;padding:20px;">翻译失败，请重试</div>';
-    } finally {
-      isTranslating = false;
-      btn.disabled = false;
-      btn.textContent = '📄 翻译当前页';
+    if (!visiblePage && pdfTextPages.length > 0) {
+      // 默认第一页
+      await translatePageText(pdfTextPages[0], shadow, btn);
+      return;
     }
+    if (!visiblePage) return;
+
+    await translatePageText(visiblePage, shadow, btn);
   }
 
-  // ============================================================
-  // 翻译全文
-  // ============================================================
-  async function translateAllPages() {
-    if (isTranslating) return;
-    if (!confirm('翻译全文需要一些时间，确定继续吗？\n\n💡 提示：你也可以选中文字直接划词翻译，更快更方便。')) return;
-
-    const shadow = sidePanel.shadowRoot;
-    const content = shadow.getElementById('st-panel-content');
-    const btn = shadow.getElementById('st-btn-all-pages');
-
+  async function translatePageText(page, shadow, btn) {
     isTranslating = true;
     btn.disabled = true;
-    const allPages = getAllPages();
+    btn.textContent = '⏳...';
 
-    const settings = await loadSettings();
-    let html = '';
-    let pageCount = 0;
-
-    for (let i = 0; i < allPages.length; i++) {
-      const page = allPages[i];
-      const pageNum = page.getAttribute('data-page-number') || (i + 1);
-      const text = extractPageText(page);
-      if (text.length < 20) continue;
-
-      content.innerHTML = `<div style="color:#999;text-align:center;padding:20px;">正在翻译第 ${pageNum} / ${allPages.length} 页...</div>`;
-
-      const chunks = splitIntoChunks(text, 800);
-      const pageTranslations = [];
+    try {
+      const settings = await loadSettings();
+      const chunks = splitIntoChunks(page.text, 800);
+      const translations = [];
 
       for (const chunk of chunks) {
         if (chunk.trim().length < 10) continue;
@@ -484,26 +397,118 @@
             engine: settings.preferredEngine
           }
         });
-        if (response.success && response.results[0] && response.results[0] !== chunk) {
-          pageTranslations.push(response.results[0]);
+        if (response && response.success && response.results[0] && response.results[0] !== chunk) {
+          translations.push(response.results[0]);
         }
       }
 
-      if (pageTranslations.length > 0) {
-        html += `<div class="st-page-section">`;
-        html += `<div class="st-page-label">📄 第 ${pageNum} 页</div>`;
-        for (const t of pageTranslations) {
-          html += `<div class="st-translated-paragraph">${escapeHtml(t)}</div>`;
+      // 在页文本下方插入翻译
+      const textEl = shadow.querySelector(`[data-st-page="${page.pageNum}"]`);
+      if (textEl && translations.length > 0) {
+        const existing = textEl.nextElementSibling;
+        if (existing && existing.classList.contains('st-trans-result')) {
+          existing.remove();
         }
-        html += `</div>`;
-        pageCount++;
+        const transDiv = document.createElement('div');
+        transDiv.className = 'st-trans-result';
+        transDiv.textContent = translations.join('\n\n');
+        textEl.parentElement.insertBefore(transDiv, textEl.nextSibling);
+      }
+    } catch (err) {
+      console.error('[ScholarTranslate] Page translation error:', err);
+    } finally {
+      isTranslating = false;
+      btn.disabled = false;
+      btn.textContent = '📄 翻译当前页';
+    }
+  }
+
+  // ============================================================
+  // 翻译全文
+  // ============================================================
+  async function translateAllPages() {
+    if (isTranslating || pdfTextPages.length === 0) return;
+    if (!confirm(`翻译全部 ${pdfTextPages.length} 页？\n\n💡 也可以直接选中面板中的文字划词翻译。`)) return;
+
+    const shadow = sidePanel.shadowRoot;
+    const btn = shadow.getElementById('st-btn-all-pages');
+    const content = shadow.getElementById('st-panel-content');
+
+    isTranslating = true;
+    btn.disabled = true;
+
+    const settings = await loadSettings();
+
+    for (let i = 0; i < pdfTextPages.length; i++) {
+      const page = pdfTextPages[i];
+      btn.textContent = `⏳ ${page.pageNum}/${pdfTextPages.length}`;
+
+      const chunks = splitIntoChunks(page.text, 800);
+      const translations = [];
+
+      for (const chunk of chunks) {
+        if (chunk.trim().length < 10) continue;
+        const response = await chrome.runtime.sendMessage({
+          type: 'TRANSLATE',
+          payload: {
+            texts: [chunk],
+            from: settings.sourceLang || 'en',
+            to: settings.targetLang || 'zh-CN',
+            engine: settings.preferredEngine
+          }
+        });
+        if (response && response.success && response.results[0] && response.results[0] !== chunk) {
+          translations.push(response.results[0]);
+        }
+      }
+
+      const textEl = shadow.querySelector(`[data-st-page="${page.pageNum}"]`);
+      if (textEl && translations.length > 0) {
+        const existing = textEl.nextElementSibling;
+        if (existing && existing.classList.contains('st-trans-result')) {
+          existing.remove();
+        }
+        const transDiv = document.createElement('div');
+        transDiv.className = 'st-trans-result';
+        transDiv.textContent = translations.join('\n\n');
+        textEl.parentElement.insertBefore(transDiv, textEl.nextSibling);
       }
     }
 
-    content.innerHTML = html || '<div style="color:#999;text-align:center;padding:20px;">未提取到可翻译文本</div>';
-
     isTranslating = false;
     btn.disabled = false;
+    btn.textContent = '📚 翻译全文';
+  }
+
+  // ============================================================
+  // 工具函数
+  // ============================================================
+  function splitIntoChunks(text, maxLen) {
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    const chunks = [];
+    let current = '';
+    for (const s of sentences) {
+      if (current.length + s.length > maxLen && current.length > 0) {
+        chunks.push(current.trim());
+        current = '';
+      }
+      current += s;
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.length > 0 ? chunks : [text];
+  }
+
+  async function loadSettings() {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      return res.settings || {};
+    } catch (e) { return {}; }
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // ============================================================
@@ -514,6 +519,4 @@
   } else {
     init();
   }
-
-  console.log('[ScholarTranslate] PDF content script loaded (manual translation mode)');
 })();
