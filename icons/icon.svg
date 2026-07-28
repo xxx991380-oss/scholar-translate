@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="20" fill="#4285f4"/>
+  <text x="64" y="55" text-anchor="middle" font-size="36" font-weight="bold" fill="white" font-family="Arial">文A</text>
+  <text x="64" y="95" text-anchor="middle" font-size="28" fill="rgba(255,255,255,0.85)" font-family="Arial">⇄</text>
+</svg>

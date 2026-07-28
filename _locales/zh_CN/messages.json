@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "ScholarTranslate — 学术翻译助手"
+  },
+  "appDescription": {
+    "message": "Google Scholar 学术论文双语翻译助手。支持标题/摘要翻译、PDF 全文翻译、中英双语对照。免费、隐私保护、即装即用。"
+  },
+  "defaultTitle": {
+    "message": "ScholarTranslate — 学术翻译"
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "ScholarTranslate",
+  "version": "0.1.0",
+  "description": "Google Scholar 学术论文双语翻译助手 — 支持标题/摘要翻译、PDF 全文翻译、中英双语对照",
+  "default_locale": "zh_CN",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://scholar.google.com/*",
+    "https://scholar.google.co.jp/*",
+    "https://scholar.google.co.uk/*",
+    "https://scholar.google.de/*",
+    "https://scholar.google.fr/*",
+    "https://scholar.google.es/*",
+    "https://scholar.google.com.hk/*",
+    "https://scholar.google.com.tw/*",
+    "https://scholar.googleusercontent.com/*",
+    "https://translate.google.com/*",
+    "https://translate-pa.googleapis.com/*",
+    "https://api.cognitive.microsofttranslator.com/*",
+    "https://api.deepseek.com/*",
+    "https://api.openai.com/*",
+    "https://api.deeplx.org/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://scholar.google.com/*",
+        "https://scholar.google.co.jp/*",
+        "https://scholar.google.co.uk/*",
+        "https://scholar.google.de/*",
+        "https://scholar.google.fr/*",
+        "https://scholar.google.es/*",
+        "https://scholar.google.com.hk/*",
+        "https://scholar.google.com.tw/*"
+      ],
+      "js": ["lib/dom-utils.js", "content/scholar-content.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://scholar.googleusercontent.com/*",
+        "*://*/*.pdf"
+      ],
+      "js": ["lib/dom-utils.js", "content/pdf-content.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "ScholarTranslate — 学术翻译"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "lib/pdf.min.js",
+        "lib/pdf.worker.min.js",
+        "content/pdf-bridge.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

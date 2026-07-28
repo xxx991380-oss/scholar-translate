@@ -1,0 +1,161 @@
+/**
+ * ScholarTranslate — 双语翻译样式
+ * 支持三种显示模式：双语对照 / 仅译文 / 仅原文
+ * 包含亮色和暗色主题适配
+ */
+
+/* ============================================================
+   翻译容器
+   ============================================================ */
+.st-translation {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #f0f4ff;
+  border-left: 3px solid #4285f4;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.st-trans-title {
+  font-weight: 600;
+  color: #1a56db;
+  margin-bottom: 4px;
+  font-size: 13.5px;
+}
+
+.st-trans-snippet {
+  color: #555;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* ============================================================
+   内联翻译（非 Scholar 页面的通用模式）
+   ============================================================ */
+.st-original {
+  display: block;
+}
+
+.st-translation-text {
+  display: block;
+  color: #4285f4;
+  font-size: 0.92em;
+  margin-top: 2px;
+}
+
+/* ============================================================
+   显示模式控制
+   ============================================================ */
+
+/* 默认：双语对照（原文 + 译文都显示） */
+.st-mode-bilingual .st-translation,
+.st-mode-bilingual .st-translation-text {
+  display: block;
+}
+
+.st-mode-bilingual .st-original {
+  display: block;
+}
+
+/* 仅译文：隐藏原文，只显示翻译 */
+.st-mode-translation-only .st-original {
+  display: none;
+}
+
+.st-mode-translation-only .st-translation,
+.st-mode-translation-only .st-translation-text {
+  display: block;
+}
+
+/* 对于未被包装的原文文本，通过父元素处理 */
+.st-mode-translation-only .gs_rt[data-st-translated],
+.st-mode-translation-only .gs_rs[data-st-translated] {
+  /* 这些元素的原文已被替换为包装结构 */
+}
+
+/* 仅原文：隐藏翻译 */
+.st-mode-original-only .st-translation,
+.st-mode-original-only .st-translation-text {
+  display: none !important;
+}
+
+.st-mode-original-only .st-original {
+  display: block;
+}
+
+/* ============================================================
+   控制面板
+   ============================================================ */
+#st-control-panel-host {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+}
+
+/* ============================================================
+   PDF 侧栏
+   ============================================================ */
+#st-pdf-panel {
+  transition: transform 0.3s ease;
+}
+
+/* ============================================================
+   Dark Mode 适配
+   ============================================================ */
+@media (prefers-color-scheme: dark) {
+  .st-translation {
+    background: #1a2332;
+    border-left-color: #5b9cf5;
+  }
+
+  .st-trans-title {
+    color: #7db5f5;
+  }
+
+  .st-trans-snippet {
+    color: #bcc9d6;
+  }
+
+  .st-translation-text {
+    color: #5b9cf5;
+  }
+
+  /* PDF 面板暗色 */
+  #st-pdf-panel {
+    /* Shadow DOM 内部样式自行处理 */
+  }
+}
+
+/* ============================================================
+   过渡动画
+   ============================================================ */
+.st-translation {
+  animation: st-fade-in 0.25s ease-out;
+}
+
+@keyframes st-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   响应式：小屏幕调整
+   ============================================================ */
+@media (max-width: 768px) {
+  .st-translation {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  #st-pdf-panel {
+    width: 100vw;
+  }
+}
