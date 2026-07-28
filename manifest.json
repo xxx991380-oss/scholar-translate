@@ -45,7 +45,7 @@
         "https://scholar.google.com.hk/*",
         "https://scholar.google.com.tw/*"
       ],
-      "js": ["lib/dom-utils.js", "content/scholar-content.js"],
+      "js": ["lib/dom-utils.js", "content/scholar-content.js", "content/selection-translate.js"],
       "css": ["content/styles.css"],
       "run_at": "document_end"
     },
@@ -55,7 +55,7 @@
         "*://*/*.pdf",
         "file://*/*.pdf"
       ],
-      "js": ["lib/dom-utils.js", "content/pdf-content.js"],
+      "js": ["lib/dom-utils.js", "content/pdf-content.js", "content/selection-translate.js"],
       "css": ["content/styles.css"],
       "run_at": "document_idle"
     }
