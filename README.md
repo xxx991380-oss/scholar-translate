@@ -46,7 +46,7 @@
 
 1. 下载本项目源码
    ```bash
-   git clone https://github.com/YOUR_USERNAME/scholar-translate.git
+   git clone https://github.com/xxx991380-oss/scholar-translate.git
    ```
 2. 打开 Edge/Chrome 浏览器
 3. 访问 `edge://extensions/` 或 `chrome://extensions/`
