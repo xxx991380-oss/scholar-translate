@@ -67,10 +67,23 @@
     updatePanelStatus('正在加载 PDF...');
 
     try {
-      // 获取 PDF 数据
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const arrayBuffer = await response.arrayBuffer();
+      // 通过 Service Worker 代理获取 PDF（绕过 file:// CORS 限制）
+      const swResponse = await chrome.runtime.sendMessage({
+        type: 'FETCH_PDF',
+        payload: { url }
+      });
+
+      if (!swResponse.success) {
+        throw new Error(swResponse.error || 'Failed to fetch PDF');
+      }
+
+      // 解码 base64
+      const binaryStr = atob(swResponse.data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const arrayBuffer = bytes.buffer;
 
       updatePanelStatus('正在解析 PDF...');
 

@@ -205,6 +205,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
+      // ---------- 代理获取 PDF 文件（解决 file:// CORS 问题）----------
+      case 'FETCH_PDF': {
+        const { url } = message.payload;
+        console.log('[ScholarTranslate] Fetching PDF via service worker:', url);
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            sendResponse({ success: false, error: `HTTP ${response.status}` });
+            return;
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          // 转为 base64 传输
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64 = btoa(binary);
+          sendResponse({ success: true, data: base64 });
+        } catch (err) {
+          console.error('[ScholarTranslate] PDF fetch error:', err);
+          sendResponse({ success: false, error: err.message });
+        }
+        break;
+      }
+
       default:
         sendResponse({ success: false, error: `Unknown message type: ${message.type}` });
     }
