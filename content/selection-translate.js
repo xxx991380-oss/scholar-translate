@@ -12,6 +12,8 @@
   let popup = null;
   let isTranslating = false;
   let hideTimer = null;
+  let lastSelectionRect = null;  // 保存选区位置，用于弹窗定位
+  let savedText = '';           // 保存选中文本
 
   // ============================================================
   // 初始化
@@ -27,26 +29,30 @@
   // 鼠标事件
   // ============================================================
   function onMouseUp(e) {
-    // 延迟一下，确保 selection 已更新
+    // 点击浮动按钮或弹窗时，不触发选区检测
+    if (floatBtn && floatBtn.contains(e.target)) return;
+    if (popup && popup.contains(e.target)) return;
+
     clearTimeout(hideTimer);
     setTimeout(() => handleSelection(e), 50);
   }
 
   function onMouseDown(e) {
-    // 点击浮动按钮或弹窗时不关闭
+    // 点击浮动按钮或弹窗内部 — 不隐藏
     if (floatBtn && floatBtn.contains(e.target)) return;
     if (popup && popup.contains(e.target)) return;
 
-    // 在其他地方点击时，延迟隐藏（给按钮点击事件时间触发）
+    // 不立即隐藏，给 click 事件时间
+    clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      hideAll();
-    }, 200);
+      if (!isTranslating) hideAll();
+    }, 250);
   }
 
   function onKeyDown(e) {
-    // ESC 关闭翻译弹窗
     if (e.key === 'Escape') {
       hideAll();
+      window.getSelection().removeAllRanges();
     }
   }
 
@@ -54,34 +60,28 @@
   // 选中处理
   // ============================================================
   function handleSelection(e) {
+    // 如果正在翻译中，忽略新的选区
+    if (isTranslating) return;
+
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) {
-      hideFloatBtn();
+      if (!isTranslating) hideFloatBtn();
       return;
     }
 
     const text = selection.toString().trim();
     if (!text || text.length < 2) {
-      hideFloatBtn();
+      if (!isTranslating) hideFloatBtn();
       return;
     }
 
-    // 获取选区的最后一个 range 的边界矩形
     const range = selection.getRangeAt(selection.rangeCount - 1);
     const rect = range.getBoundingClientRect();
 
     if (!rect || (rect.width === 0 && rect.height === 0)) {
-      hideFloatBtn();
+      if (!isTranslating) hideFloatBtn();
       return;
     }
-
-    // 检查选区是否在可编辑区域
-    const container = range.commonAncestorContainer;
-    const editable = container.nodeType === Node.ELEMENT_NODE
-      ? container.closest('input, textarea, [contenteditable="true"]')
-      : container.parentElement?.closest('input, textarea, [contenteditable="true"]');
-    // 可编辑区域也支持，但不自动弹出按钮（避免干扰输入）
-    // 改为需要按快捷键触发
 
     showFloatBtn(rect, text);
   }
@@ -95,19 +95,20 @@
       document.body.appendChild(floatBtn);
     }
 
-    // 计算按钮位置（选区末尾上方）
+    // 保存选区信息和文本
+    lastSelectionRect = selectionRect;
+    savedText = selectedText;
+
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
 
-    // 按钮放在选区最后一行的右下方
     let left = selectionRect.right + scrollX + 6;
     let top = selectionRect.bottom + scrollY + 4;
 
-    // 避免超出视口右边界
+    // 避免超出视口
     if (left + 42 > window.innerWidth + scrollX) {
       left = selectionRect.left + scrollX - 42 - 6;
     }
-    // 避免超出视口底部
     if (top + 30 > window.innerHeight + scrollY) {
       top = selectionRect.top + scrollY - 30 - 4;
     }
@@ -117,16 +118,13 @@
     floatBtn.style.display = 'flex';
     floatBtn.style.opacity = '1';
 
-    // 保存选中文本供翻译使用
-    floatBtn._selectedText = selectedText;
-
-    // 3 秒后自动隐藏
     clearTimeout(floatBtn._autoHide);
+    // 5 秒后自动隐藏
     floatBtn._autoHide = setTimeout(() => {
-      if (!popup || popup.style.display === 'none') {
+      if (!isTranslating && (!popup || popup.style.display === 'none')) {
         hideFloatBtn();
       }
-    }, 3000);
+    }, 5000);
   }
 
   function createFloatBtn() {
@@ -171,15 +169,23 @@
       译
     `;
 
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
+    // 使用 mousedown 而不是 click，避免浏览器清空选区后再触发
+    btn.addEventListener('mousedown', (e) => {
       e.preventDefault();
+      e.stopPropagation();
+    });
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
 
       if (isTranslating) return;
-      const text = btn._selectedText;
-      if (!text) return;
+      if (!savedText) return;
 
-      await translateAndShow(text, btn);
+      // 保持按钮可见（不清除）
+      clearTimeout(floatBtn._autoHide);
+
+      translateAndShow(savedText);
     });
 
     return btn;
@@ -283,7 +289,6 @@
           color: #d93025;
           font-size: 12.5px;
         }
-        /* 暗色模式 */
         @media (prefers-color-scheme: dark) {
           :host {
             background: #1e1e1e;
@@ -306,13 +311,17 @@
       <div class="st-popup-translation st-loading" id="st-translated-text">翻译中...</div>
     `;
 
-    shadow.getElementById('st-close-btn').addEventListener('click', hideAll);
-    shadow.getElementById('st-copy-btn').addEventListener('click', () => {
+    shadow.getElementById('st-close-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideAll();
+    });
+    shadow.getElementById('st-copy-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
       const translated = shadow.getElementById('st-translated-text').textContent;
       navigator.clipboard.writeText(translated).then(() => {
-        const btn = shadow.getElementById('st-copy-btn');
-        btn.textContent = '✅';
-        setTimeout(() => { btn.textContent = '📋'; }, 1500);
+        const copyBtn = shadow.getElementById('st-copy-btn');
+        copyBtn.textContent = '✅';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
       }).catch(() => {});
     });
 
@@ -320,27 +329,37 @@
     return el;
   }
 
-  function showPopup(anchorEl, originalText, translatedText) {
-    if (!popup) {
-      popup = createPopup();
+  // ============================================================
+  // 弹窗定位
+  // ============================================================
+  function positionPopup() {
+    if (!popup) return;
+
+    // 优先使用保存的选区位置，其次使用按钮位置
+    let anchorRect;
+    if (lastSelectionRect) {
+      anchorRect = lastSelectionRect;
+    } else if (floatBtn && floatBtn.style.display !== 'none') {
+      anchorRect = floatBtn.getBoundingClientRect();
+    } else {
+      // 降级：屏幕中央
+      anchorRect = {
+        left: window.innerWidth / 2,
+        right: window.innerWidth / 2,
+        top: window.innerHeight / 2,
+        bottom: window.innerHeight / 2
+      };
     }
 
-    const shadow = popup.shadowRoot;
-    shadow.getElementById('st-original-text').textContent = originalText;
-    const transEl = shadow.getElementById('st-translated-text');
-    transEl.textContent = translatedText;
-    transEl.className = 'st-popup-translation';
-
-    // 计算弹窗位置（在按钮下方）
-    const anchorRect = anchorEl.getBoundingClientRect();
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
+    const popupWidth = 480;
 
-    let left = anchorRect.left + scrollX - 200 + 16; // 居中偏左
+    // 弹窗出现在选区/按钮的下方
+    let left = anchorRect.left + scrollX - 200;
     let top = anchorRect.bottom + scrollY + 8;
 
     // 确保不超出视口
-    const popupWidth = 480;
     if (left + popupWidth > window.innerWidth + scrollX) {
       left = window.innerWidth + scrollX - popupWidth - 16;
     }
@@ -351,29 +370,26 @@
     if (top + 300 > window.innerHeight + scrollY) {
       top = anchorRect.top + scrollY - 300 - 8;
     }
+    if (top < scrollY + 8) {
+      top = scrollY + 60;
+    }
 
     popup.style.left = left + 'px';
     popup.style.top = top + 'px';
-    popup.style.display = 'block';
-    popup.style.opacity = '1';
-
-    // 更新关闭按钮事件
-    shadow.getElementById('st-close-btn').onclick = hideAll;
   }
 
   // ============================================================
   // 翻译逻辑
   // ============================================================
-  async function translateAndShow(text, anchorEl) {
+  async function translateAndShow(text) {
     if (isTranslating) return;
     isTranslating = true;
 
-    // 显示加载状态
     if (floatBtn) {
       floatBtn.classList.add('st-loading');
     }
 
-    // 先显示弹窗（加载中）
+    // 创建弹窗
     if (!popup) {
       popup = createPopup();
     }
@@ -383,27 +399,12 @@
     shadow.getElementById('st-translated-text').textContent = '翻译中...';
     shadow.getElementById('st-translated-text').className = 'st-popup-translation st-loading';
 
-    // 计算位置
-    const anchorRect = anchorEl.getBoundingClientRect();
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    let left = anchorRect.left + scrollX - 200 + 16;
-    let top = anchorRect.bottom + scrollY + 8;
-    const popupWidth = 480;
-    if (left + popupWidth > window.innerWidth + scrollX) {
-      left = window.innerWidth + scrollX - popupWidth - 16;
-    }
-    if (left < scrollX + 16) left = scrollX + 16;
-    if (top + 300 > window.innerHeight + scrollY) {
-      top = anchorRect.top + scrollY - 300 - 8;
-    }
-    popup.style.left = left + 'px';
-    popup.style.top = top + 'px';
+    // 定位弹窗
+    positionPopup();
     popup.style.display = 'block';
     popup.style.opacity = '1';
 
     try {
-      // 发送翻译请求
       const response = await chrome.runtime.sendMessage({
         type: 'TRANSLATE',
         payload: {
@@ -413,27 +414,28 @@
         }
       });
 
-      if (response.success && response.results[0]) {
+      if (response && response.success && response.results[0]) {
         const translated = response.results[0];
         if (translated !== text) {
           shadow.getElementById('st-translated-text').textContent = translated;
           shadow.getElementById('st-translated-text').className = 'st-popup-translation';
         } else {
-          shadow.getElementById('st-translated-text').textContent = '（翻译结果与原文相同，请尝试其他引擎）';
+          shadow.getElementById('st-translated-text').textContent = '（翻译结果与原文相同，请尝试更换翻译引擎）';
           shadow.getElementById('st-translated-text').className = 'st-popup-translation';
         }
       } else {
-        shadow.getElementById('st-translated-text').textContent = '翻译失败：' + (response.error || '未知错误');
+        shadow.getElementById('st-translated-text').textContent = '翻译失败：' + ((response && response.error) || '未知错误');
         shadow.getElementById('st-translated-text').className = 'st-popup-error';
       }
     } catch (err) {
       console.error('[ScholarTranslate] Selection translate error:', err);
-      shadow.getElementById('st-translated-text').textContent = '翻译失败，请检查网络连接';
+      shadow.getElementById('st-translated-text').textContent = '翻译失败：无法连接到翻译服务，请检查网络';
       shadow.getElementById('st-translated-text').className = 'st-popup-error';
     } finally {
       isTranslating = false;
       if (floatBtn) {
         floatBtn.classList.remove('st-loading');
+        hideFloatBtn();
       }
     }
   }
@@ -442,26 +444,26 @@
   // 隐藏
   // ============================================================
   function hideAll() {
+    clearTimeout(hideTimer);
+    lastSelectionRect = null;
+    savedText = '';
     hideFloatBtn();
     if (popup) {
       popup.style.display = 'none';
       popup.style.opacity = '0';
     }
+    isTranslating = false;
   }
 
   // ============================================================
-  // 消息监听（响应 popup/background 的控制指令）
+  // 消息监听
   // ============================================================
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'TOGGLE_TRANSLATION') {
-      if (message.payload.enabled === false) {
-        hideAll();
-      }
+      if (message.payload.enabled === false) hideAll();
       sendResponse({ success: true });
     }
-    if (message.type === 'SET_DISPLAY_MODE') {
-      sendResponse({ success: true });
-    }
+    return true;
   });
 
   // ============================================================
