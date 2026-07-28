@@ -7,6 +7,8 @@
 (function () {
   'use strict';
 
+  console.log('[ScholarTranslate] PDF content script START — URL:', window.location.href);
+
   let sidePanel = null;
   let toggleBtn = null;
   let isTranslating = false;
@@ -15,7 +17,13 @@
   // 初始化 — 仅创建 UI，不自动翻译
   // ============================================================
   async function init() {
-    if (!isPDFPage()) return;
+    const isPDF = isPDFPage();
+    console.log('[ScholarTranslate] isPDFPage result:', isPDF, 'URL:', window.location.href);
+
+    if (!isPDF) {
+      console.log('[ScholarTranslate] Not a PDF page, skipping panel setup. Selection translate still works.');
+      return;
+    }
 
     console.log('[ScholarTranslate] PDF page detected, setting up manual translation panel');
 
@@ -31,10 +39,23 @@
 
   function isPDFPage() {
     const url = window.location.href;
+    // file:// 协议 — 可能被 Scholar PDF Reader 渲染为 PDF 查看器
+    if (url.startsWith('file://')) {
+      // 检查文件名后缀
+      if (url.toLowerCase().endsWith('.pdf')) return true;
+      // 即使没有 .pdf 后缀，如果页面中有 PDF 查看器也算
+      if (document.querySelector('.pdfViewer, .textLayer, #viewer.pdfViewer, #viewerContainer')) return true;
+      // file:// 且页面内容很少（可能是 PDF 渲染中），也尝试初始化
+      return true;
+    }
+    // 直接 PDF URL
     if (url.endsWith('.pdf')) return true;
+    // Google Scholar PDF 查看器
     if (url.includes('scholar.googleusercontent.com')) return true;
+    // 通用 PDF 查看器
     if (url.includes('pdf.js') || url.includes('pdf_viewer')) return true;
-    if (document.querySelector('.pdfViewer, .textLayer, #viewer.pdfViewer')) return true;
+    // 检查页面中是否有 PDF 查看器
+    if (document.querySelector('.pdfViewer, .textLayer, #viewer.pdfViewer, #viewerContainer')) return true;
     return false;
   }
 

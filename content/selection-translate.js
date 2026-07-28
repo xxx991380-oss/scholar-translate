@@ -6,6 +6,8 @@
 (function () {
   'use strict';
 
+  console.log('[ScholarTranslate] Selection translate START — URL:', window.location.href);
+
   let floatBtn = null;
   let popup = null;
   let isTranslating = false;
